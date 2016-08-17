@@ -26,7 +26,7 @@ else:
 
 from .visualization import applyCollapse, dict_to_matrix,sCollapseToSrcId, sCollapseToSrcName, make_png, sCollToLength, sCollByTermParent
 from pyontutils.scigraph_client import Graph, Vocabulary
-from pyontutils.hierarchies import creatTree, in_tree
+from pyontutils.hierarchies import creatTree, in_tree, flatten
 from .scigraph_client import Graph, Vocabulary
 
 # initilaize scigraph services
@@ -1314,8 +1314,49 @@ class heatmap_service(database_service):
 
         tuples = [[v if v is not None else '' for v in self.term_server.term_id_expansion(term)]  # FIXME this called 2x
                   for term in heatmap_data]
+        allCuries = []
         for tup in tuples:
             tup[-1] = str(tup[-1])  # convert syns -> query
+            if tup[1] != '':
+                allCuries.append(tup[1])
+
+        relationshipSetUnion = set()
+        curieResultDict = {}
+        for curie in allCuries:
+            # find relationship stuffs
+            result = graph.getNeighbors(curie, depth=1, direction='BOTH')
+            edges = result['edges']
+            curieResultDict[curie] = edges
+            for dicto in edges:
+                relationshipSetUnion.add(dicto['pred'])
+
+        relationshipSetIntersect = set()
+        listOfPred = []
+        for curie in allCuries:
+            edges = curieResultDict[curie]
+            curiePred = set()
+            for item in edges:
+                pred = item['pred']
+                curiePred.add(pred)
+            listOfPred.append(curiePred)
+        relationshipSetIntersect = listOfPred[0]
+        for item in listOfPred:
+            relationshipSetIntersect = relationshipSetIntersect & item
+
+        approvedIntersect = set(['subClassOf', 'http://www.obofoundry.org/ro/ro.owl#has_proper_part'])
+        
+        relationshipSetSome = relationshipSetUnion - relationshipSetIntersect
+
+        relationshipsSome = []
+        relationshipsIntersect = []
+        for item in relationshipSetSome:
+            relationshipsSome.append(item)
+        for item in relationshipSetIntersect:
+            relationshipsIntersect.append(item)
+        relationshipsSome = sorted(relationshipsSome)
+        relationshipsIntersect = sorted(relationshipsIntersect)
+
+        relationships = relationshipsIntersect + relationshipsSome
 
         num_matches = len([t for t in tuples if t[1]])
         cols = [c for c in zip(*tuples)]
@@ -1365,6 +1406,7 @@ class heatmap_service(database_service):
                         'collTerms':(self.collTerms, ),
                         'collSources':(self.collSources, ),
                         'levels':(self.levels, ),
+                        'relationships': (relationships, ),
                         'sortTypeTerms':(self.sort_types, ),
                         'sortTypeSrcs':(self.sort_types, ),
                         'sortTerms':(self.sort_terms, ),
@@ -1388,7 +1430,7 @@ class heatmap_service(database_service):
 
 
     def output(self, heatmap_id, filetype, sortTerms=None, sortSources=None,  # FIXME probably want to convert the Nones for sorts to lists?
-               collTerms=None, collSources=None, levels=0, idSortTerms=None, idSortSources=None,
+               collTerms=None, collSources=None, levels=0, relationship='subClassOf', idSortTerms=None, idSortSources=None,
                ascTerms=True, ascSources=True): 
         """
             Provide a single API for all output types.
@@ -1428,7 +1470,7 @@ class heatmap_service(database_service):
         
         if term_coll_function:
             if term_coll_function == sCollByTermParent:
-                treeOutput = self.enrichment(term_id_name_dict)
+                treeOutput = self.enrichment(term_id_name_dict, relationship=relationship)
                 term_id_coll_dict, term_id_name_dict = term_coll_function(heatmap_data_copy, term_id_name_dict, treeOutput, int(levels))
             else: 
                 term_id_coll_dict, term_id_name_dict = term_coll_function(heatmap_data_copy, term_id_name_dict)
@@ -1608,6 +1650,70 @@ class heatmap_service(database_service):
             termOutput["sort_number_edges"][tup[0]] = tup[1]
             termOutput["sort_number_synonyms"][tup[0]] = tup[2]
 
+        # Sort: hierarchies_subClassOf. Sort by hierarchy with the subClassOf relationship
+        output = self.enrichment(term_id_name_dict, relationship='subClassOf')
+        named_tree = output[0]
+        id_tree = output[1][0]
+        terms_in_named = []
+        terms_in_id = []
+        misc = []
+        for term in term_id_name_dict:
+            if term in named_tree:
+                terms_in_named.append(term)
+            elif term in id_tree:
+                terms_in_id.append(term)
+            else:
+                misc.append(term)
+        if len(terms_in_named) >= len(terms_in_id):
+            flattenedTree = flatten(named_tree)
+            in_other_tree = sorted(terms_in_id)
+        else:
+            flattenedTree = flatten(id_tree)
+            in_other_tree = sorted(terms_in_named)
+        misc = sorted(misc)
+        buffer = 0
+        for index, name in enumerate(flattenedTree):
+            termOutput['sort_hierarchies_subClassOf'][name] = index
+            buffer += 1
+        for item in in_other_tree:
+            termOutput['sort_hierarchies_subClassOf'][item] = buffer
+            buffer += 1
+        for item in misc:
+            termOutput['sort_hierarchies_subClassOf'][item] = buffer
+            buffer += 1       
+
+        # Sort: hierarchies_hasProperPart. Sort by hierarchy with the subClassOf relationship
+        output = self.enrichment(term_id_name_dict, relationship='http://www.obofoundry.org/ro/ro.owl#proper_part_of', direction='OUTGOING')
+        named_tree = output[0]
+        id_tree = output[1][0]
+        terms_in_named = []
+        terms_in_id = []
+        misc = []
+        for term in term_id_name_dict:
+            if term in named_tree:
+                terms_in_named.append(term)
+            elif term in id_tree:
+                terms_in_id.append(term)
+            else:
+                misc.append(term)
+        if len(terms_in_named) >= len(terms_in_id):
+            flattenedTree = flatten(named_tree)
+            in_other_tree = sorted(terms_in_id)
+        else:
+            flattenedTree = flatten(id_tree)
+            in_other_tree = sorted(terms_in_named)
+        misc = sorted(misc)
+        buffer = 0
+        for index, name in enumerate(flattenedTree):
+            termOutput['sort_hierarchies_hasProperPart'][name] = index
+            buffer += 1
+        for item in in_other_tree:
+            termOutput['sort_hierarchies_hasProperPart'][item] = buffer
+            buffer += 1
+        for item in misc:
+            termOutput['sort_hierarchies_hasProperPart'][item] = buffer
+            buffer += 1 
+        
         return termOutput, sourceOutput
 
     def addSortToData(self, heatmap_data, term_id_order, src_id_order, term_name_order, src_name_order, termDict, srcDict):
@@ -1630,16 +1736,13 @@ class heatmap_service(database_service):
             
         return heatmap_data, term_id_order, src_id_order, term_name_order, src_name_order
 
-    def enrichment(self, id_name_dict):
+    def enrichment(self, id_name_dict, relationship='subClassOf', direction='OUTGOING'):
         """
         Takes in terms and outputs a tree with the common parent as the root
         Input: id_name_dict (dictionary, but anything that will iterate with the desired terms works)
         Output: tree, extra (the same type of stuff that comes from creatTree)
         """
         Query = namedtuple('Query', ['root','relationshipType','direction','depth'])
-
-        relationship = 'subClassOf'
-        direction = 'OUTGOING'
         
         try:
             id_name_dict.pop(TOTAL_TERM_ID)
@@ -1920,7 +2023,7 @@ class heatmap_service(database_service):
         
         invdir = {'INCOMING':'OUTGOING','OUTGOING':'INCOMING'}[direction]
         resultTree = creatTree(commonParent, relationship, invdir, 9, json=resultJson)
-        
+
         return resultTree
     
         

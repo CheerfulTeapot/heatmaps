@@ -228,14 +228,14 @@ def do_terms(terms, filename=None):
     return output
 
 def data_from_id(hm_id, filetype, collTerms=None, collSources=None,
-                 levels=0, sortTerms=None, sortSources=None,
+                 levels=0, relationship='subClassOf', sortTerms=None, sortSources=None,
                  idSortTerms=None, idSortSources=None,
                  ascTerms=True, ascSources=True):
     hm_id = int(hm_id)
 
     print('RUNNING:')
     print(hm_id, filetype, sortTerms, sortSources, collTerms, collSources, levels, idSortTerms, idSortSources, ascTerms, ascSources)
-    data, filename, mimetype = hmserv.output(hm_id, filetype, sortTerms, sortSources, collTerms, collSources, levels, idSortTerms, idSortSources, ascTerms, ascSources)
+    data, filename, mimetype = hmserv.output(hm_id, filetype, sortTerms, sortSources, collTerms, collSources, levels, relationship, idSortTerms, idSortSources, ascTerms, ascSources)
     if data:
         if filetype == 'csv':
             attachment = 'attachment; '
@@ -321,6 +321,7 @@ def hm_viz(hm_id):
             request.form['collTerms'],
             request.form['collSources'],
             request.form['levels'],
+            request.form['relationships'],
             sortTerms,
             sortSources,
             idSortTerms,
@@ -446,11 +447,8 @@ def hm_explore(hm_id):
             '<h3>Collapse options:</h3>',
             '{collTerms}',
             '{levels}',
+            '{relationships}',
             '{collSources} <br>',
-
-            '<div id={hier} style="display:none;">',
-            '{levels}',
-            '</div>',
         
             '<h3>Sorting Options:</h3>',
             '{sortTypeTerms}',
