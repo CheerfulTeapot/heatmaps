@@ -547,17 +547,24 @@ def hm_interactive(hm_id):
 
                 // Decorators
                 heatmap.cells.decorators["count"] = new jheatmap.decorators.Heat({
-                                minValue: 0.0,
-                                midValue: 999,
-                                maxValue: 99999,
-                                minColor: [85, 0, 136],
-                                nullColor: [255,128,128],
-                                maxColor: [255, 204, 0],
-                                midColor: [240,240,240]
+                                minValue: %s,
+                                midValue: %s,
+                                maxValue: %s,
+                                minColor: %s,
+                                nullColor: %s,
+                                maxColor: %s,
+                                midColor: %s
                 });
             }
         });
-    });\n""" % hm_id
+    });\n""" % (hm_id,
+                0,  # min  #TODO this can probably be done in the js?
+                50,  # mid
+                250,  # max is 249
+                [250, 255, 250],  # minc
+                [220, 220, 255],  # nullc
+                [0, 100, 0],  # maxc
+                [0, 192, 0])  # midc
     jhjs = '../static/jh.js'
     jhcss = '../static/jh.css'
     return html.format(css_min=jhcss, jheatmap_min=jhjs, heatmap_js=heatmap_js)
